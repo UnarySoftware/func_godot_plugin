@@ -306,7 +306,7 @@ func _get_game_config_v9v8_text() -> String:
 	},
 	"materials": {
 		"root": "%s",
-		"extensions": [".bmp", ".exr", ".hdr", ".jpeg", ".jpg", ".png", ".tga", ".webp", ".D", ".C"],
+		"extensions": [".png"],
 		"excludes": [ %s ],
 		"palette": "%s",
 		"attribute": "wad"

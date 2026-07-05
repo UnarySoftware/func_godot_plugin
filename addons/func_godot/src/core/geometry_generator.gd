@@ -43,6 +43,19 @@ func is_clip(face: _FaceData) -> bool:
 func is_origin(face: _FaceData) -> bool:
 	return FuncGodotUtil.is_origin(face.texture, map_settings)
 
+func is_shadow(face: _FaceData) -> bool:
+	return FuncGodotUtil.is_shadow(face.texture, map_settings)
+
+## Returns the collision pool name (e.g. "Concrete", "Wood") for a whole brush, derived from the first
+## of its faces whose material declares a surface type. Empty string when no face declares one.
+## Used to tag per-brush convex collision shapes by surface type.
+func get_brush_collision_pool(brush: _BrushData) -> String:
+	for face in brush.faces:
+		var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture), map_settings)
+		if not pool.is_empty():
+			return pool
+	return ""
+
 #endregion
 
 #region PATCHES
@@ -318,6 +331,38 @@ func get_plane_lookup_key(plane: Plane) -> Vector4i:
 		int(round(plane.d*OCCLUSION_PRECISION))
 	)
 
+# Builds a single ArrayMesh surface array from a flat list of faces sharing a texture.
+# Used for the shadow-only mesh. Returns an empty Array if no geometry was produced.
+func build_surface_arrays(faces: Array, op_xf: Callable) -> Array:
+	var arrays: Array = []
+	arrays.resize(ArrayMesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] 	= PackedVector3Array()
+	arrays[Mesh.ARRAY_NORMAL] 	= PackedVector3Array()
+	arrays[Mesh.ARRAY_TANGENT] 	= PackedFloat32Array()
+	arrays[Mesh.ARRAY_TEX_UV] 	= PackedVector2Array()
+	arrays[Mesh.ARRAY_INDEX] 	= PackedInt32Array()
+
+	var index_offset: int = 0
+	for face: _FaceData in faces:
+		if face.vertices.size() < 3:
+			continue
+		for i in face.vertices.size():
+			var v: Vector3 = face.vertices[i]
+			arrays[Mesh.ARRAY_VERTEX].append(op_xf.call(v))
+			arrays[Mesh.ARRAY_NORMAL].append(FuncGodotUtil.id_to_opengl(face.normals[i]))
+			var tx_sz: Vector2 = texture_sizes.get(face.texture, Vector2.ONE * map_settings.inverse_scale_factor)
+			arrays[Mesh.ARRAY_TEX_UV].append(FuncGodotUtil.get_face_vertex_uv(v, face, tx_sz))
+			for j in 4:
+				arrays[Mesh.ARRAY_TANGENT].append(face.tangents[(i * 4) + j])
+
+		var op_shift_index: Callable = (func(a: int) -> int: return a + index_offset)
+		arrays[Mesh.ARRAY_INDEX].append_array(Array(face.indices).map(op_shift_index))
+		index_offset += face.vertices.size()
+
+	if arrays[Mesh.ARRAY_VERTEX].is_empty():
+		return []
+	return arrays
+
 func generate_entity_surfaces(entity_index: int) -> void:
 	var entity: _EntityData = entity_data[entity_index]
 	
@@ -336,6 +381,8 @@ func generate_entity_surfaces(entity_index: int) -> void:
 	
 	# Surface groupings <texture_name, Array[Face]>
 	var surfaces: Dictionary[String, Array] = {}
+	# Faces textured with the shadow texture, built into a separate shadow-only mesh <texture_name, Array[Face]>
+	var shadow_surfaces: Dictionary[String, Array] = {}
 
 	# Metadata
 	var current_metadata_index: int = 0
@@ -352,7 +399,15 @@ func generate_entity_surfaces(entity_index: int) -> void:
 		for face in brush.faces:
 			if is_skip(face) or is_origin(face):
 				continue
-			
+
+			# Shadow faces are diverted into a separate shadow-only mesh and excluded from
+			# both the main visual surfaces and the generated collision.
+			if is_shadow(face):
+				if not shadow_surfaces.has(face.texture):
+					shadow_surfaces[face.texture] = []
+				shadow_surfaces[face.texture].append(face)
+				continue
+
 			if not surfaces.has(face.texture):
 				surfaces[face.texture] = []
 			surfaces[face.texture].append(face)
@@ -364,7 +419,10 @@ func generate_entity_surfaces(entity_index: int) -> void:
 	var mesh := ArrayMesh.new()
 	var mesh_arrays: Array[Array] = []
 	var build_concave: bool = entity.is_collision_concave()
-	var concave_vertices: PackedVector3Array
+	# Concave collision triangles bucketed by surface-type pool name (empty string = default pool).
+	var concave_pools: Dictionary[String, PackedVector3Array] = {}
+	# Faces contributing to each concave pool, retained for shape-to-face metadata.
+	var concave_pool_faces: Dictionary[String, Array] = {}
 
 	# Iteration variables
 	var arrays: Array
@@ -476,13 +534,19 @@ func generate_entity_surfaces(entity_index: int) -> void:
 			if build_concave:
 				var tris: PackedVector3Array
 				tris.resize(face.indices.size())
-				
+
 				# Add triangles from face indices directly
 				# TODO: This can possibly be merged with the below loop in a clever way
 				for i in face.indices.size():
 					tris[i] = op_entity_ogl_xf.call(face.vertices[face.indices[i]])
-				
-				concave_vertices.append_array(tris)
+
+				# Split collision by surface-type pool so gameplay code can identify what was hit.
+				var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture), map_settings)
+				if not concave_pools.has(pool):
+					concave_pools[pool] = PackedVector3Array()
+					concave_pool_faces[pool] = []
+				concave_pools[pool].append_array(tris)
+				concave_pool_faces[pool].append(face)
 				
 			# Do not generate visuals for clip textures
 			if is_clip(face):
@@ -551,7 +615,8 @@ func generate_entity_surfaces(entity_index: int) -> void:
 		for array_index in mesh_arrays.size():
 			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh_arrays[array_index])
 			mesh.surface_set_name(array_index, textures[array_index])
-			mesh.surface_set_material(array_index, texture_materials[textures[array_index]])
+			if texture_materials.has(textures[array_index]):
+				mesh.surface_set_material(array_index, texture_materials[textures[array_index]])
 		
 		# Apply mesh metadata	
 		if def.add_textures_metadata:
@@ -563,12 +628,28 @@ func generate_entity_surfaces(entity_index: int) -> void:
 			entity.mesh_metadata["normals"] = normals_metadata
 		if def.add_face_position_metadata:
 			entity.mesh_metadata["positions"] = positions_metadata
-		
+
 		entity.mesh = mesh
-	
+
+		# Build a separate shadow-only mesh from shadow-textured faces (shadow blocker approach).
+		if not shadow_surfaces.is_empty():
+			var shadow_mesh := ArrayMesh.new()
+			for shadow_texture_name in shadow_surfaces:
+				var shadow_arrays: Array = build_surface_arrays(shadow_surfaces[shadow_texture_name], op_entity_ogl_xf)
+				if shadow_arrays.is_empty():
+					continue
+				shadow_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, shadow_arrays)
+				var shadow_surface_index: int = shadow_mesh.get_surface_count() - 1
+				shadow_mesh.surface_set_name(shadow_surface_index, shadow_texture_name)
+				if texture_materials.has(shadow_texture_name):
+					shadow_mesh.surface_set_material(shadow_surface_index, texture_materials[shadow_texture_name])
+			if shadow_mesh.get_surface_count() > 0:
+				entity.shadow_mesh = shadow_mesh
+
 	# Clear up unusued memory
 	arrays = []
 	surfaces = {}
+	shadow_surfaces = {}
 	
 	if entity.is_collision_convex():
 		var sh: ConvexPolygonShape3D
@@ -583,7 +664,9 @@ func generate_entity_surfaces(entity_index: int) -> void:
 			sh = ConvexPolygonShape3D.new()
 			sh.points = points
 			entity.shapes.append(sh)
-	
+			# Tag this brush's convex shape with its surface-type pool (empty when untyped).
+			entity.shape_pool_names.append(get_brush_collision_pool(b))
+
 			if def.add_collision_shape_to_face_indices_metadata:
 				# convex collision has one shape per brush, so collect the
 				# indices for this brush's faces
@@ -593,18 +676,25 @@ func generate_entity_surfaces(entity_index: int) -> void:
 						face_indices_array.append_array(face_index_metadata_map[face])
 				shape_to_face_metadata.append(face_indices_array)
 
-	elif build_concave and concave_vertices.size():
-		var sh := ConcavePolygonShape3D.new()
-		sh.set_faces(concave_vertices)
-		entity.shapes.append(sh)
-		
-		if def.add_collision_shape_to_face_indices_metadata:
-			# for concave collision the shape will always represent every face
-			# in the entity, so just add every face here
-			var face_indices_array : PackedInt32Array = []
-			for fm in face_index_metadata_map.values():
-				face_indices_array.append_array(fm)
-			shape_to_face_metadata.append(face_indices_array)
+	elif build_concave:
+		# One concave shape per surface-type pool. Faces without a recognized surface type fall into
+		# the default pool (empty name); typed faces are grouped into named pools (e.g. "Concrete", "Wood").
+		for pool in concave_pools:
+			var pool_vertices: PackedVector3Array = concave_pools[pool]
+			if pool_vertices.is_empty():
+				continue
+			var sh := ConcavePolygonShape3D.new()
+			sh.set_faces(pool_vertices)
+			entity.shapes.append(sh)
+			entity.shape_pool_names.append(pool)
+
+			if def.add_collision_shape_to_face_indices_metadata:
+				# The shape represents every face routed into this pool.
+				var face_indices_array : PackedInt32Array = []
+				for face in concave_pool_faces[pool]:
+					if face_index_metadata_map.has(face):
+						face_indices_array.append_array(face_index_metadata_map[face])
+				shape_to_face_metadata.append(face_indices_array)
 			
 	if def.add_collision_shape_to_face_indices_metadata:
 		# this metadata will be mapped to the actual shape node names during entity assembly

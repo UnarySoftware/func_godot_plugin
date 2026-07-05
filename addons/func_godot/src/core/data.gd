@@ -138,10 +138,18 @@ class EntityData extends RefCounted:
 	var mesh: ArrayMesh = null
 	## MeshInstance3D node generated during the entity assembly stage.
 	var mesh_instance: MeshInstance3D = null
+	## Optional mesh resource containing only faces textured with the shadow texture, generated during the
+	## geometry generation stage. Applied to a shadow-only [MeshInstance3D] during entity assembly.
+	var shadow_mesh: ArrayMesh = null
+	## Shadow-only MeshInstance3D node generated during the entity assembly stage from [member shadow_mesh].
+	var shadow_mesh_instance: MeshInstance3D = null
 	## Optional mesh metadata compiled during the geometry generation stage, used to determine face information from collision.
 	var mesh_metadata: Dictionary = {}
 	## A collection of collision shape resources generated during the geometry generation stage and applied during the entity assembly stage.
 	var shapes: Array[Shape3D] = []
+	## Parallel to [member shapes]. For concave collision split by surface type, holds the pool name for each
+	## shape (e.g. "Concrete", "Wood"), or an empty string for the default pool. Empty when not applicable.
+	var shape_pool_names: PackedStringArray = []
 	## A collection of [CollisionShape3D] nodes generated during the entity assembly stage. Each node corresponds to a shape in the [member shapes] array.
 	var collision_shapes: Array[CollisionShape3D] = []
 	## [OccluderInstance3D] node generated during the entity assembly stage using the [member mesh] resource.

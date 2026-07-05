@@ -463,7 +463,7 @@ func _parse_quake_map(map_data: PackedStringArray, map_settings: FuncGodotMapSet
 			else:
 				tex = tokens[3].get_slice(" ", 0)
 				tokens = tokens[3].trim_prefix(tex + " ").split(" ] ")
-			face.texture = tex
+			face.texture = tex.replace(" . ", "/")
 			
 			# Check for origin brushes. Brushes must be completely textured with origin to be valid.
 			if brush.faces.is_empty():

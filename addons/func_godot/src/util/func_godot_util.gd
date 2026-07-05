@@ -160,6 +160,13 @@ static func is_origin(texture: String, map_settings: FuncGodotMapSettings) -> bo
 		return texture.to_lower() == map_settings.origin_texture
 	return false
 
+## Filters faces textured with Shadow during the geometry generation step of the build process.
+## These faces are moved into a separate shadow-only mesh instead of the main visual mesh.
+static func is_shadow(texture: String, map_settings: FuncGodotMapSettings) -> bool:
+	if map_settings and not map_settings.shadow_texture.is_empty():
+		return texture.to_lower() == map_settings.shadow_texture
+	return false
+
 ## Filters faces textured with any of the tool textures during the geometry generation step of the build process.
 static func filter_face(texture: String, map_settings: FuncGodotMapSettings) -> bool:
 	if map_settings:
@@ -167,9 +174,50 @@ static func filter_face(texture: String, map_settings: FuncGodotMapSettings) -> 
 		if (texture == map_settings.skip_texture
 			or texture == map_settings.clip_texture
 		 	or texture == map_settings.origin_texture
+			or (not map_settings.shadow_texture.is_empty() and texture == map_settings.shadow_texture)
 			):
 			return true
 	return false
+
+## Returns the collision pool name for a [Material] whose script global name matches
+## [member FuncGodotMapSettings.collision_pool_material_class], derived from the value of its
+## [member FuncGodotMapSettings.collision_pool_property] enum. Returns an empty string when the material
+## is null, not a matching class, or has no readable surface type. Used to split concave collision into
+## separately-named [CollisionShape3D] nodes (e.g. "Concrete", "Wood").
+static func get_collision_pool(material: Material, map_settings: FuncGodotMapSettings) -> String:
+	if not material or not map_settings:
+		return ""
+	var target_class: StringName = map_settings.collision_pool_material_class
+	if target_class.is_empty():
+		return ""
+
+	var script: Script = material.get_script()
+	if not script:
+		return ""
+
+	# Prefer the registered global class name; fall back to the script file name for C# scripts
+	# where get_global_name may be unavailable.
+	if script.get_global_name() != target_class:
+		if script.resource_path.get_file().get_basename() != String(target_class):
+			return ""
+
+	var property_name: String = map_settings.collision_pool_property.to_lower()
+	for prop in material.get_property_list():
+		if int(prop.get("hint", 0)) == PROPERTY_HINT_ENUM and String(prop["name"]).to_lower() == property_name:
+			var value: int = int(material.get(prop["name"]))
+			# Enum hint strings come as "Name" entries and may carry explicit "Name:Value" pairs
+			# (e.g. non-sequential C# enums). Match by explicit value when present, else by position.
+			var entries: PackedStringArray = String(prop["hint_string"]).split(",", false)
+			for index in entries.size():
+				var entry: String = entries[index]
+				var colon: int = entry.rfind(":")
+				if colon != -1 and entry.substr(colon + 1).strip_edges().is_valid_int():
+					if entry.substr(colon + 1).strip_edges().to_int() == value:
+						return entry.substr(0, colon).strip_edges()
+				elif index == value:
+					return entry.strip_edges()
+			return ""
+	return ""
 
 ## Adds PBR textures to an existing [BaseMaterial3D].
 static func build_base_material(map_settings: FuncGodotMapSettings, material: BaseMaterial3D, texture: String) -> void:
@@ -302,8 +350,8 @@ static func build_texture_map(entity_data: Array[FuncGodotData.EntityData], map_
 						ResourceSaver.save(material, material_path)
 					
 					texture_materials[texture_name] = material
-				else: # No default material exists
-					printerr("Error: No default material found in map settings")
+				#else: # No default material exists
+				#	printerr("Error: No default material found in map settings")
 	
 	return [texture_materials, texture_sizes]
 

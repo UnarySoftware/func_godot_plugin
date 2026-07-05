@@ -88,12 +88,21 @@ var scale_factor: float = 0.03125
 	set(tex):
 		skip_texture = tex.to_lower()
 
-## Optional path for the origin texture, relative to [member base_texture_dir]. 
-## Brush faces textured with the origin texture will have those faces removed from the generated [Mesh] and [Shape3D]. 
+## Optional path for the origin texture, relative to [member base_texture_dir].
+## Brush faces textured with the origin texture will have those faces removed from the generated [Mesh] and [Shape3D].
 ## The bounds of these faces will be used to calculate the origin point of the entity.
 @export var origin_texture: String = "origin":
 	set(tex):
 		origin_texture = tex.to_lower()
+
+## Optional path for the shadow texture, relative to [member base_texture_dir].
+## Brush faces textured with the shadow texture are removed from the main visual [Mesh] and instead
+## collected into a separate [MeshInstance3D] whose [member GeometryInstance3D.cast_shadow] is set to
+## [b]SHADOW_CASTING_SETTING_SHADOWS_ONLY[/b], supporting an invisible "shadow blocker" approach.
+## These faces do not contribute to the generated collision [Shape3D].
+@export var shadow_texture: String = "shadow":
+	set(tex):
+		shadow_texture = tex.to_lower()
 @export_subgroup("")
 
 ## Optional [QuakeWadFile] resources to apply textures from. See the [Quake Wiki](https://quakewiki.org/wiki/Texture_Wad) for more information on Quake Texture WADs.
@@ -112,7 +121,7 @@ var scale_factor: float = 0.03125
 @export var material_file_extension: String = "tres"
 
 ## [Material] used as template when generating missing materials.
-@export var default_material: Material = preload("res://addons/func_godot/textures/default_material.tres")
+@export var default_material: Material# = preload("res://addons/func_godot/textures/default_material.tres")
 
 ## Sampler2D uniform that supplies the Albedo in a custom shader when [member default_material] is a [ShaderMaterial].
 @export var default_material_albedo_uniform: String = ""
@@ -141,9 +150,20 @@ var scale_factor: float = 0.03125
 @export var orm_map_pattern: String = "%s_orm"
 @export_subgroup("")
 
-## Save automatically generated materials to disk, allowing reuse across [FuncGodotMap] nodes. 
+## Save automatically generated materials to disk, allowing reuse across [FuncGodotMap] nodes.
 ## [i]NOTE: Materials do not use the [member default_material] settings after saving.[/i]
 @export var save_generated_materials: bool = true
+
+@export_subgroup("Collision Surface Types")
+## Faces whose [Material] is a script class with this global name have their generated [CollisionShape3D]
+## tagged by surface type value (e.g. "Concrete", "Wood"), letting gameplay code identify what a collider
+## represents. For [b]concave[/b] collision this produces one collision mesh per surface type; for
+## [b]convex[/b] collision each per-brush shape is named by its surface type. Leave empty to disable.
+@export var collision_pool_material_class: StringName = &"UnaryMaterial3D"
+## Name of the enum property (case-insensitive) read from a [member collision_pool_material_class] material
+## to determine the collision pool. The enum value's name becomes the pool name.
+@export var collision_pool_property: String = "Type"
+@export_subgroup("")
 @export_group("")
 
 #endregion

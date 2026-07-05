@@ -115,6 +115,17 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 					map_settings.uv_unwrap_texel_size * map_settings.scale_factor
 				)
 
+	# Shadow-only mesh generation (shadow blocker)
+	if data.shadow_mesh:
+		var shadow_mesh_instance := MeshInstance3D.new()
+		shadow_mesh_instance.name = node_name + "_shadow_mesh_instance"
+		shadow_mesh_instance.mesh = data.shadow_mesh
+		shadow_mesh_instance.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		shadow_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		shadow_mesh_instance.layers = definition.render_layers
+		node.add_child(shadow_mesh_instance)
+		data.shadow_mesh_instance = shadow_mesh_instance
+
 	# Collision generation
 	if data.shapes.size() and node is CollisionObject3D:
 		node.collision_layer = definition.collision_layer
@@ -131,10 +142,18 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 		for i in data.shapes.size():
 			var shape := data.shapes[i]
 			var collision_shape := CollisionShape3D.new()
+			# Tag collision shapes with their surface-type pool when present (e.g. "Concrete", "Wood").
+			var pool_name: String = data.shape_pool_names[i] if i < data.shape_pool_names.size() else ""
 			if definition.collision_shape_type == FuncGodotFGDSolidClass.CollisionShapeType.CONCAVE:
-				collision_shape.name = node_name + "_collision_shape"
+				if pool_name.is_empty():
+					collision_shape.name = node_name + "_collision_shape"
+				else:
+					collision_shape.name = node_name + "_" + pool_name + "_collision_shape"
 			else:
-				collision_shape.name = node_name + "_brush_%s_collision_shape" % i
+				if pool_name.is_empty():
+					collision_shape.name = node_name + "_brush_%s_collision_shape" % i
+				else:
+					collision_shape.name = node_name + "_" + pool_name + "_brush_%s_collision_shape" % i
 			collision_shape.shape = shape
 			collision_shape.shape.margin = definition.collision_shape_margin
 			collision_shape.owner = node.owner
@@ -367,6 +386,8 @@ func build(map_node: FuncGodotMap, entities: Array[_EntityData], groups: Array[_
 			entity_node.owner = scene_root
 			if entity_data.mesh_instance:
 				entity_data.mesh_instance.owner = scene_root
+			if entity_data.shadow_mesh_instance:
+				entity_data.shadow_mesh_instance.owner = scene_root
 			for shape in entity_data.collision_shapes:
 				if shape:
 					shape.owner = scene_root
