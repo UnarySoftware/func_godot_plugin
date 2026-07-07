@@ -66,13 +66,12 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 		node = Node3D.new()
 	
 	name_node(node,node_name)
-	node_name = node_name.trim_suffix(definition.classname).trim_suffix("_")
 	var properties: Dictionary[String, Variant] = data.properties
 	
 	# Mesh Instance generation
 	if data.mesh:
 		var mesh_instance := MeshInstance3D.new()
-		mesh_instance.name = node_name + "_mesh_instance"
+		mesh_instance.name = "mesh_instance"
 		mesh_instance.mesh = data.mesh
 		mesh_instance.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		if definition.global_illumination_mode:
@@ -99,7 +98,7 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 			var occluder := ArrayOccluder3D.new()
 			occluder.set_arrays(verts, indices)
 			var occluder_instance := OccluderInstance3D.new()
-			occluder_instance.name = node_name + "_occluder_instance"
+			occluder_instance.name = "occluder_instance"
 			occluder_instance.occluder = occluder
 			node.add_child(occluder_instance)
 			data.occluder_instance = occluder_instance
@@ -118,7 +117,7 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 	# Shadow-only mesh generation (shadow blocker)
 	if data.shadow_mesh:
 		var shadow_mesh_instance := MeshInstance3D.new()
-		shadow_mesh_instance.name = node_name + "_shadow_mesh_instance"
+		shadow_mesh_instance.name = "shadow_mesh_instance"
 		shadow_mesh_instance.mesh = data.shadow_mesh
 		shadow_mesh_instance.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
 		shadow_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
@@ -141,19 +140,24 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 		var face_index_metadata : Dictionary[String, PackedInt32Array] = {}
 		for i in data.shapes.size():
 			var shape := data.shapes[i]
-			var collision_shape := CollisionShape3D.new()
+			var collision_shape := StaticCollisionShape3D.new()
 			# Tag collision shapes with their surface-type pool when present (e.g. "Concrete", "Wood").
 			var pool_name: String = data.shape_pool_names[i] if i < data.shape_pool_names.size() else ""
+			# Carry the pool's surface type onto the StaticCollisionShape3D when one was resolved.
+			if not pool_name.is_empty():
+				var surface_type: int = FuncGodotUtil.get_enum_value_by_name(collision_shape, "Type", pool_name)
+				if surface_type >= 0:
+					collision_shape.set("Type", surface_type)
 			if definition.collision_shape_type == FuncGodotFGDSolidClass.CollisionShapeType.CONCAVE:
 				if pool_name.is_empty():
-					collision_shape.name = node_name + "_collision_shape"
+					collision_shape.name = "collision_shape"
 				else:
-					collision_shape.name = node_name + "_" + pool_name + "_collision_shape"
+					collision_shape.name = pool_name.to_lower() + "_collision_shape"
 			else:
 				if pool_name.is_empty():
-					collision_shape.name = node_name + "_brush_%s_collision_shape" % i
+					collision_shape.name = "brush_%s_collision_shape" % i
 				else:
-					collision_shape.name = node_name + "_" + pool_name + "_brush_%s_collision_shape" % i
+					collision_shape.name = pool_name.to_lower() + "_brush_%s_collision_shape" % i
 			collision_shape.shape = shape
 			collision_shape.shape.margin = definition.collision_shape_margin
 			collision_shape.owner = node.owner
@@ -307,25 +311,22 @@ func apply_entity_properties(node: Node, data: _EntityData) -> void:
 ## in the case of [FuncGodotFGDSolidClass] entities with no [FuncGodotData.BrushData] entries.
 func generate_entity_node(entity_data: _EntityData, entity_index: int) -> Node:
 	var node: Node = null
-	var node_name: String = "entity_%s" % entity_index
+	var node_name: String = str(entity_index)
 	var properties: Dictionary[String, Variant] = entity_data.properties
 	var entity_def: FuncGodotFGDEntityClass = entity_data.definition
-	
-	if "classname" in entity_data.properties:
-		var classname: String = properties["classname"]
-	
-	node_name += "_" + properties["classname"]
-	
+
+	# Suffix the global index with the entity's class so the node communicates its type (e.g. "0_worldspawn").
+	if "classname" in properties:
+		node_name += "_" + str(properties["classname"])
+
 	var name_prop: String
 	if entity_def.name_property in properties:
 		name_prop = str(properties[entity_def.name_property])
 	elif map_settings.entity_name_property in properties:
 		name_prop = str(properties[map_settings.entity_name_property])
 	if not name_prop.is_empty():
-		if name_prop.begins_with("%"):
-			node_name = name_prop
-		else:
-			node_name = "entity_" + name_prop
+		# name_node() handles the "%" unique-name-in-owner prefix.
+		node_name = name_prop
 	
 	if entity_def is FuncGodotFGDSolidClass:
 		node = generate_solid_entity_node(node, node_name, entity_data, entity_def)

@@ -51,7 +51,7 @@ func is_shadow(face: _FaceData) -> bool:
 ## Used to tag per-brush convex collision shapes by surface type.
 func get_brush_collision_pool(brush: _BrushData) -> String:
 	for face in brush.faces:
-		var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture), map_settings)
+		var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture))
 		if not pool.is_empty():
 			return pool
 	return ""
@@ -541,7 +541,7 @@ func generate_entity_surfaces(entity_index: int) -> void:
 					tris[i] = op_entity_ogl_xf.call(face.vertices[face.indices[i]])
 
 				# Split collision by surface-type pool so gameplay code can identify what was hit.
-				var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture), map_settings)
+				var pool: String = FuncGodotUtil.get_collision_pool(texture_materials.get(face.texture))
 				if not concave_pools.has(pool):
 					concave_pools[pool] = PackedVector3Array()
 					concave_pool_faces[pool] = []

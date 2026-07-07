@@ -179,32 +179,23 @@ static func filter_face(texture: String, map_settings: FuncGodotMapSettings) -> 
 			return true
 	return false
 
-## Returns the collision pool name for a [Material] whose script global name matches
-## [member FuncGodotMapSettings.collision_pool_material_class], derived from the value of its
-## [member FuncGodotMapSettings.collision_pool_property] enum. Returns an empty string when the material
-## is null, not a matching class, or has no readable surface type. Used to split concave collision into
-## separately-named [CollisionShape3D] nodes (e.g. "Concrete", "Wood").
-static func get_collision_pool(material: Material, map_settings: FuncGodotMapSettings) -> String:
-	if not material or not map_settings:
-		return ""
-	var target_class: StringName = map_settings.collision_pool_material_class
-	if target_class.is_empty():
-		return ""
+## Returns the collision pool name for a [UnaryStandartMaterial3D], taken from the name of its
+## [member UnaryStandartMaterial3D.Type] surface type (e.g. "Concrete", "Wood"). Returns an empty string for any
+## other material. Used to split collision into separately-named [CollisionShape3D] nodes by surface type.
+static func get_collision_pool(material: Material) -> String:
+	if material is UnaryStandartMaterial3D:
+		return get_enum_name_by_value(material, "Type", int(material.get("Type")))
+	return ""
 
-	var script: Script = material.get_script()
-	if not script:
+## Resolves the [PROPERTY_HINT_ENUM] property [param property_name] (case-insensitive) on [param object] to
+## the member name matching [param value]. Inverse of [method get_enum_value_by_name]. Returns an empty
+## string when the object is null, the property is not an enum, or no member holds that value.
+static func get_enum_name_by_value(object: Object, property_name: String, value: int) -> String:
+	if not object:
 		return ""
-
-	# Prefer the registered global class name; fall back to the script file name for C# scripts
-	# where get_global_name may be unavailable.
-	if script.get_global_name() != target_class:
-		if script.resource_path.get_file().get_basename() != String(target_class):
-			return ""
-
-	var property_name: String = map_settings.collision_pool_property.to_lower()
-	for prop in material.get_property_list():
+	property_name = property_name.to_lower()
+	for prop in object.get_property_list():
 		if int(prop.get("hint", 0)) == PROPERTY_HINT_ENUM and String(prop["name"]).to_lower() == property_name:
-			var value: int = int(material.get(prop["name"]))
 			# Enum hint strings come as "Name" entries and may carry explicit "Name:Value" pairs
 			# (e.g. non-sequential C# enums). Match by explicit value when present, else by position.
 			var entries: PackedStringArray = String(prop["hint_string"]).split(",", false)
@@ -218,6 +209,30 @@ static func get_collision_pool(material: Material, map_settings: FuncGodotMapSet
 					return entry.strip_edges()
 			return ""
 	return ""
+
+## Resolves an enum member [param name] to the integer value of the [PROPERTY_HINT_ENUM] property
+## [param property_name] (case-insensitive) on [param object]. Mirrors the hint-string parsing used by
+## [method get_collision_pool] to map a collision pool name back onto a node's surface type enum. Returns
+## -1 when the object is null, the name is empty, the property is not an enum, or the name is not found.
+static func get_enum_value_by_name(object: Object, property_name: String, name: String) -> int:
+	if not object or name.is_empty():
+		return -1
+	property_name = property_name.to_lower()
+	for prop in object.get_property_list():
+		if int(prop.get("hint", 0)) == PROPERTY_HINT_ENUM and String(prop["name"]).to_lower() == property_name:
+			# Enum hint strings come as "Name" entries and may carry explicit "Name:Value" pairs
+			# (e.g. non-sequential C# enums). Match by explicit value when present, else by position.
+			var entries: PackedStringArray = String(prop["hint_string"]).split(",", false)
+			for index in entries.size():
+				var entry: String = entries[index]
+				var colon: int = entry.rfind(":")
+				if colon != -1 and entry.substr(colon + 1).strip_edges().is_valid_int():
+					if entry.substr(0, colon).strip_edges() == name:
+						return entry.substr(colon + 1).strip_edges().to_int()
+				elif entry.strip_edges() == name:
+					return index
+			return -1
+	return -1
 
 ## Adds PBR textures to an existing [BaseMaterial3D].
 static func build_base_material(map_settings: FuncGodotMapSettings, material: BaseMaterial3D, texture: String) -> void:

@@ -154,16 +154,6 @@ var scale_factor: float = 0.03125
 ## [i]NOTE: Materials do not use the [member default_material] settings after saving.[/i]
 @export var save_generated_materials: bool = true
 
-@export_subgroup("Collision Surface Types")
-## Faces whose [Material] is a script class with this global name have their generated [CollisionShape3D]
-## tagged by surface type value (e.g. "Concrete", "Wood"), letting gameplay code identify what a collider
-## represents. For [b]concave[/b] collision this produces one collision mesh per surface type; for
-## [b]convex[/b] collision each per-brush shape is named by its surface type. Leave empty to disable.
-@export var collision_pool_material_class: StringName = &"UnaryMaterial3D"
-## Name of the enum property (case-insensitive) read from a [member collision_pool_material_class] material
-## to determine the collision pool. The enum value's name becomes the pool name.
-@export var collision_pool_property: String = "Type"
-@export_subgroup("")
 @export_group("")
 
 #endregion
