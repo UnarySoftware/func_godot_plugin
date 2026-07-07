@@ -140,14 +140,19 @@ func generate_solid_entity_node(node: Node, node_name: String, data: _EntityData
 		var face_index_metadata : Dictionary[String, PackedInt32Array] = {}
 		for i in data.shapes.size():
 			var shape := data.shapes[i]
-			var collision_shape := StaticCollisionShape3D.new()
-			# Tag collision shapes with their surface-type pool when present (e.g. "Concrete", "Wood").
 			var pool_name: String = data.shape_pool_names[i] if i < data.shape_pool_names.size() else ""
-			# Carry the pool's surface type onto the StaticCollisionShape3D when one was resolved.
-			if not pool_name.is_empty():
-				var surface_type: int = FuncGodotUtil.get_enum_value_by_name(collision_shape, "Type", pool_name)
+			# Only faces textured with a UnaryMaterial3D resolve to a surface-type pool (e.g. "Concrete",
+			# "Wood"). Those get a StaticCollisionShape3D tagged with that surface type; every other collider
+			# uses a plain CollisionShape3D.
+			var collision_shape: CollisionShape3D
+			if pool_name.is_empty():
+				collision_shape = CollisionShape3D.new()
+			else:
+				var static_shape := StaticCollisionShape3D.new()
+				var surface_type: int = FuncGodotUtil.get_enum_value_by_name(static_shape, "Type", pool_name)
 				if surface_type >= 0:
-					collision_shape.set("Type", surface_type)
+					static_shape.set("Type", surface_type)
+				collision_shape = static_shape
 			if definition.collision_shape_type == FuncGodotFGDSolidClass.CollisionShapeType.CONCAVE:
 				if pool_name.is_empty():
 					collision_shape.name = "collision_shape"
